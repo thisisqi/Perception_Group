@@ -1,0 +1,582 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>行为谱系编辑器（纯文本树结构-删减重编号版）</title>
+  <style>
+    :root {
+      --bg: #f4f7fc;
+      --card: #fff;
+      --line: #d9e2ef;
+      --text: #1e293b;
+      --sub: #5b6b7f;
+      --tag-bg: #f3f7fc;
+      --tag-line: #d2dbe8;
+      --accent: #1d4ed8;
+      --ok: #065f46;
+      --err: #b91c1c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at left top, #ffffff 0%, var(--bg) 58%, #e8eef9 100%);
+    }
+    .layout {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1.05fr 1fr;
+      gap: 14px;
+      padding: 14px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 8px 20px rgba(18, 38, 63, 0.08);
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .hd {
+      margin: 0;
+      padding: 12px 14px;
+      font-size: 17px;
+      border-bottom: 1px solid var(--line);
+      background: #f8fbff;
+    }
+    .tip {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--line);
+      color: var(--sub);
+      font-size: 12px;
+      line-height: 1.55;
+      background: #fcfdff;
+    }
+    textarea {
+      flex: 1;
+      width: 100%;
+      border: 0;
+      outline: none;
+      resize: none;
+      padding: 12px 14px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      background: #fff;
+    }
+    .toolbar {
+      border-top: 1px solid var(--line);
+      padding: 10px 14px 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      background: #f8fbff;
+    }
+    button {
+      border: 1px solid #c7d4e5;
+      border-radius: 8px;
+      padding: 6px 9px;
+      font-size: 13px;
+      background: #fff;
+      color: #1f3a5a;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); color: var(--accent); }
+    .status {
+      margin-left: auto;
+      align-self: center;
+      font-size: 12px;
+      color: var(--sub);
+    }
+    .error {
+      display: none;
+      margin: 8px 14px 0;
+      padding: 8px 10px;
+      border: 1px solid #f1cccc;
+      color: var(--err);
+      background: #fff2f2;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .view-area { flex: 1; overflow: auto; padding: 8px 12px 14px; }
+    .tree, .tree ul {
+      list-style: none;
+      margin: 0;
+      padding-left: 22px;
+      position: relative;
+    }
+    .tree ul::before {
+      content: "";
+      border-left: 1px solid #b8c4d8;
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 8px;
+    }
+    .tree li { position: relative; margin: 7px 0; }
+    .tree li::before {
+      content: "";
+      position: absolute;
+      top: 14px;
+      left: -14px;
+      width: 14px;
+      border-top: 1px solid #b8c4d8;
+    }
+    details > summary { list-style: none; cursor: pointer; }
+    details > summary::-webkit-details-marker { display: none; }
+    .tag {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--tag-line);
+      background: var(--tag-bg);
+      font-size: 12px;
+    }
+    .l1 { font-weight: 700; }
+    .meta { color: #66778f; font-size: 12px; margin-left: 6px; }
+    @media (max-width: 1050px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <section class="card">
+      <h2 class="hd">文本模式（唯一编辑入口）</h2>
+      <div class="tip">
+        支持格式：<br>
+        1) 节点：`L1: 编号 | 名称`、`L2: ...`、`L3: ...`、`L4: ...`<br>
+        2) 树关系：`H: L1编号 > L2编号 > L3编号`<br>
+        3) L3-L4关系：`G: L3编号 -> L4编号`（用于把 L4 挂到树上）
+      </div>
+      <div id="errorBox" class="error"></div>
+      <textarea id="textEditor" spellcheck="false"></textarea>
+      <div class="toolbar">
+        <button id="parseBtn" type="button">按文本刷新</button>
+        <button id="resetBtn" type="button">恢复默认</button>
+        <button id="copyTextBtn" type="button">复制文本</button>
+        <button id="copyJsonBtn" type="button">复制 JSON（高级）</button>
+        <span id="status" class="status">等待编辑...</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="hd">L1/L2/L3/L4 树结构</h2>
+      <div class="tip">L4 通过 `G: L3 -> L4` 关系挂接到每个 L3 下方。</div>
+      <div id="treeView" class="view-area"></div>
+    </section>
+  </div>
+
+  <script>
+    const defaultSeed = {
+      l1: [
+        ["L1_01", "公园绿地"],
+        ["L1_02", "商业空间"],
+        ["L1_03", "交通空间"],
+        ["L1_04", "公共服务空间"]
+      ],
+      l2: [
+        ["L2_01", "停留休憩"],
+        ["L2_02", "社交互动"],
+        ["L2_03", "休闲娱乐"],
+        ["L2_04", "移动通勤"],
+        ["L2_05", "消费购物"],
+        ["L2_06", "任务操作"],
+        ["L2_07", "风险安全*"],
+        ["L2_08", "意图感知*"]
+      ],
+      l3: [
+        ["L3_01", "移动行为"], ["L3_02", "姿态调整"], ["L3_03", "空间转换"],
+        ["L3_04", "操作物品"], ["L3_05", "使用设备"], ["L3_06", "使用工具"],
+        ["L3_07", "休闲娱乐"], ["L3_08", "社交互动"], ["L3_09", "肢体接触"],
+        ["L3_10", "传递物品"], ["L3_11", "车辆行为*"], ["L3_12", "异常行为*"],
+        ["L3_13", "意图响应*"]
+      ],
+      hierarchy: [
+        ["L1_01", "L2_01", "L3_02"], ["L1_01", "L2_02", "L3_08"], ["L1_01", "L2_02", "L3_09"], ["L1_01", "L2_02", "L3_10"], ["L1_01", "L2_03", "L3_07"], ["L1_01", "L2_03", "L3_01"],
+        ["L1_02", "L2_04", "L3_01"], ["L1_02", "L2_04", "L3_03"], ["L1_02", "L2_05", "L3_04"], ["L1_02", "L2_05", "L3_10"], ["L1_02", "L2_06", "L3_05"], ["L1_02", "L2_06", "L3_06"], ["L1_02", "L2_07", "L3_12"],
+        ["L1_03", "L2_04", "L3_01"], ["L1_03", "L2_04", "L3_03"], ["L1_03", "L2_04", "L3_11"], ["L1_03", "L2_01", "L3_02"], ["L1_03", "L2_08", "L3_13"], ["L1_03", "L2_08", "L3_08"], ["L1_03", "L2_07", "L3_12"],
+        ["L1_04", "L2_04", "L3_01"], ["L1_04", "L2_04", "L3_03"], ["L1_04", "L2_02", "L3_08"], ["L1_04", "L2_02", "L3_09"], ["L1_04", "L2_06", "L3_04"], ["L1_04", "L2_06", "L3_06"], ["L1_04", "L2_03", "L3_07"], ["L1_04", "L2_08", "L3_13"], ["L1_04", "L2_07", "L3_12"]
+      ],
+      l3Actions: {
+        "L3_01": ["步行", "跑步", "爬行", "跳跃", "跌倒", "起身", "游泳", "攀爬", "骑自行车", "滑滑板车", "滑滑板", "骑车", "驾驶汽车", "划船", "驾驶帆船", "练习武术"],
+        "L3_02": ["站立", "坐", "躺", "蹲/跪", "弯腰", "穿衣"],
+        "L3_03": ["上楼梯", "下楼梯", "穿行", "等待", "排队", "进入", "离开"],
+        "L3_04": ["手持物体", "接住物体", "拿起/举起物体", "放下物体", "打开", "关闭", "拉动物体", "推动物体", "触摸/操作物体", "指向物体", "投掷", "击打物体", "踢物体", "开关门", "装载货物", "卸载货物"],
+        "L3_05": ["接电话", "打电话", "发短信/看手机", "使用电脑", "看屏幕", "听音频", "阅读", "书写/打字"],
+        "L3_06": ["使用工具", "旋转工具", "按压", "砍/劈", "切割", "挖掘", "铲运", "搅拌", "取出物品", "粉刷", "烹饪"],
+        "L3_07": ["进食", "饮水", "跳舞", "玩棋盘游戏/打麻将", "演奏乐器", "与宠物玩耍", "钓鱼", "拍照", "与儿童玩耍"],
+        "L3_08": ["与人交谈", "听他人说话", "看向他人/目标", "对个人或群体唱歌", "点头", "致意手势", "让行手势", "优先通行手势"],
+        "L3_09": ["握手", "拥抱", "拍手", "挥手/打招呼", "亲吻", "抓住他人", "推他人", "踢他人", "击打/打斗他人", "抱起他人"],
+        "L3_10": ["把物品递给他人", "从他人处接过物品"],
+        "L3_11": ["车辆接人", "车辆送人下车", "车辆行驶", "车辆启动", "车辆停止", "车辆左转", "车辆右转", "车辆掉头", "道路事故"],
+        "L3_12": ["吸烟", "虐待", "逮捕", "纵火", "袭击", "入室盗窃", "爆炸", "抢劫", "枪击", "店内盗窃", "偷窃", "破坏公物", "骚乱", "滑板者异常", "小推车异常", "轮椅异常", "偏离步道步行异常"],
+        "L3_13": ["让出路径反应", "加速反应", "减速反应"]
+      }
+    };
+
+    const l4EnglishMapByZh = {
+      "步行": "walking",
+      "跑步": "running_jogging",
+      "爬行": "crawling",
+      "跳跃": "jumping_leaping",
+      "跌倒": "falling_down",
+      "起身": "getting_up",
+      "游泳": "swimming",
+      "攀爬": "climbing",
+      "骑自行车": "cycling_biking",
+      "滑滑板车": "scootering",
+      "滑滑板": "skating",
+      "骑车": "riding",
+      "驾驶汽车": "driving",
+      "划船": "rowing_boat",
+      "驾驶帆船": "sailing_boat",
+      "练习武术": "martial_arts",
+      "站立": "standing",
+      "坐": "sitting",
+      "躺": "lying_sleeping",
+      "蹲/跪": "crouching_kneeling",
+      "弯腰": "bending_bowing",
+      "上楼梯": "going_upstairs",
+      "下楼梯": "going_downstairs",
+      "穿行": "crossing",
+      "等待": "waiting",
+      "排队": "queueing",
+      "进入": "entering",
+      "离开": "exiting",
+      "手持物体": "holding_or_carrying_object",
+      "接住物体": "catching_object",
+      "拿起/举起物体": "picking_up_lifting_object",
+      "放下物体": "putting_down_object",
+      "打开": "opening",
+      "关闭": "closing",
+      "拉动物体": "pulling_object",
+      "推动物体": "pushing_object",
+      "触摸/操作物体": "touching_or_interacting_with_object",
+      "指向物体": "pointing_to_object",
+      "投掷": "throwing",
+      "击打物体": "hitting_object",
+      "踢物体": "kicking_object",
+      "开关门": "interaction_with_door",
+      "装载货物": "loading_vehicle",
+      "卸载货物": "unloading_vehicle",
+      "接电话": "answering_phone",
+      "打电话": "talking_on_phone",
+      "发短信/看手机": "texting_or_looking_at_cellphone",
+      "使用电脑": "working_on_computer",
+      "看屏幕": "watching_screen",
+      "听音频": "listening_to_audio",
+      "阅读": "reading",
+      "书写/打字": "writing_or_typing",
+      "使用工具": "using_tool",
+      "旋转工具": "turning_tool",
+      "按压": "pressing",
+      "砍/劈": "chopping",
+      "切割": "cutting",
+      "挖掘": "digging",
+      "铲运": "shoveling",
+      "搅拌": "stirring",
+      "取出物品": "extracting",
+      "粉刷": "painting",
+      "烹饪": "cooking",
+      "进食": "eating",
+      "饮水": "drinking",
+      "吸烟": "smoking",
+      "穿衣": "dressing_putting_on_clothes",
+      "跳舞": "dancing",
+      "玩棋盘游戏/打麻将": "playing_board_game",
+      "演奏乐器": "playing_musical_instrument",
+      "与宠物玩耍": "playing_with_pets",
+      "钓鱼": "fishing",
+      "拍照": "taking_photo",
+      "与儿童玩耍": "playing_with_kids",
+      "与人交谈": "talking_to_person",
+      "听他人说话": "listening_to_person",
+      "看向他人/目标": "looking_at_person_or_target",
+      "对个人或群体唱歌": "singing_to_person_or_group",
+      "点头": "nodding",
+      "致意手势": "gesture_acknowledge",
+      "让行手势": "gesture_yield",
+      "优先通行手势": "gesture_right_of_way",
+      "握手": "handshake",
+      "拥抱": "hugging",
+      "拍手": "hand_clapping",
+      "挥手/打招呼": "hand_waving_or_greeting",
+      "亲吻": "kissing",
+      "抓住他人": "grabbing_person",
+      "推他人": "pushing_person",
+      "踢他人": "kicking_person",
+      "击打/打斗他人": "hitting_or_fighting_person",
+      "抱起他人": "lifting_person",
+      "把物品递给他人": "giving_object_to_person",
+      "从他人处接过物品": "taking_object_from_person",
+      "车辆接人": "vehicle_pickup_person",
+      "车辆送人下车": "vehicle_dropoff_person",
+      "车辆行驶": "vehicle_moving",
+      "车辆启动": "vehicle_starting",
+      "车辆停止": "vehicle_stopping",
+      "车辆左转": "vehicle_turning_left",
+      "车辆右转": "vehicle_turning_right",
+      "车辆掉头": "vehicle_u_turn",
+      "道路事故": "road_accident",
+      "虐待": "abuse",
+      "逮捕": "arrest",
+      "纵火": "arson",
+      "袭击": "assault",
+      "入室盗窃": "burglary",
+      "爆炸": "explosion",
+      "抢劫": "robbery",
+      "枪击": "shooting",
+      "店内盗窃": "shoplifting",
+      "偷窃": "stealing",
+      "破坏公物": "vandalism",
+      "骚乱": "riot",
+      "滑板者异常": "skateboarder_anomaly",
+      "小推车异常": "small_cart_anomaly",
+      "轮椅异常": "wheelchair_anomaly",
+      "偏离步道步行异常": "off_walkway_walking_anomaly",
+      "让出路径反应": "clear_path_reaction",
+      "加速反应": "speed_up_reaction",
+      "减速反应": "slow_down_reaction"
+    };
+
+    function toState(seed) {
+      const s = {
+        nodes: { L1: {}, L2: {}, L3: {}, L4: {} },
+        comments: { L1: {}, L2: {}, L3: {}, L4: {} },
+        hierarchy: [],
+        edges: []
+      };
+      seed.l1.forEach(([id, name]) => s.nodes.L1[id] = name);
+      seed.l2.forEach(([id, name]) => s.nodes.L2[id] = name);
+      seed.l3.forEach(([id, name]) => s.nodes.L3[id] = name);
+      seed.hierarchy.forEach(([l1, l2, l3]) => s.hierarchy.push({ l1, l2, l3 }));
+
+      const actionToId = {};
+      let idx = 1;
+      Object.keys(seed.l3Actions).forEach(l3 => {
+        seed.l3Actions[l3].forEach(action => {
+          if (!actionToId[action]) {
+            const id = 'L4_' + String(idx).padStart(3, '0');
+            actionToId[action] = id;
+            s.nodes.L4[id] = action;
+            if (l4EnglishMapByZh[action]) s.comments.L4[id] = l4EnglishMapByZh[action];
+            idx += 1;
+          }
+          s.edges.push({ l3, l4: actionToId[action] });
+        });
+      });
+      return s;
+    }
+
+    let state = toState(defaultSeed);
+
+    const textEditor = document.getElementById('textEditor');
+    const errorBox = document.getElementById('errorBox');
+    const statusEl = document.getElementById('status');
+    const treeView = document.getElementById('treeView');
+
+    function esc(x) {
+      return String(x)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function uniqBy(items, keyFn) {
+      const map = new Map();
+      items.forEach(i => map.set(keyFn(i), i));
+      return Array.from(map.values());
+    }
+
+    function serializeText(s) {
+      const lines = [];
+      lines.push('# 节点定义：Level: 编号 | 名称');
+      lines.push('# 例如：L1: L1_01 | 公园绿地');
+      lines.push('');
+      ['L1', 'L2', 'L3', 'L4'].forEach(level => {
+        lines.push('# ' + level + ' 节点');
+        Object.keys(s.nodes[level]).sort().forEach(id => {
+          const comment = s.comments?.[level]?.[id];
+          lines.push(level + ': ' + id + ' | ' + s.nodes[level][id] + (comment ? ' # ' + comment : ''));
+        });
+        lines.push('');
+      });
+
+      lines.push('# 树关系：H: L1编号 > L2编号 > L3编号');
+      uniqBy(s.hierarchy, h => [h.l1, h.l2, h.l3].join('|')).forEach(h => lines.push('H: ' + h.l1 + ' > ' + h.l2 + ' > ' + h.l3));
+      lines.push('');
+      lines.push('# L3-L4关系：G: L3编号 -> L4编号');
+      uniqBy(s.edges, e => [e.l3, e.l4].join('|')).forEach(e => lines.push('G: ' + e.l3 + ' -> ' + e.l4));
+      return lines.join('\n');
+    }
+
+    function parseText(raw) {
+      const s = {
+        nodes: { L1: {}, L2: {}, L3: {}, L4: {} },
+        comments: { L1: {}, L2: {}, L3: {}, L4: {} },
+        hierarchy: [],
+        edges: []
+      };
+      const lines = raw.split(/\r?\n/);
+      const nodeRe = /^(L[1-4])\s*:\s*([A-Za-z0-9_\-]+)\s*\|\s*(.+)$/;
+      const hRe = /^H\s*:\s*([A-Za-z0-9_\-]+)\s*>\s*([A-Za-z0-9_\-]+)\s*>\s*([A-Za-z0-9_\-]+)$/;
+      const gRe = /^G\s*:\s*([A-Za-z0-9_\-]+)\s*->\s*([A-Za-z0-9_\-]+)$/;
+
+      for (let i = 0; i < lines.length; i++) {
+        const ln = i + 1;
+        const rawLine = lines[i].trim();
+        if (!rawLine || rawLine.startsWith('#')) continue;
+        const idx = rawLine.indexOf('#');
+        const t = (idx >= 0 ? rawLine.slice(0, idx) : rawLine).trim();
+        const inlineComment = idx >= 0 ? rawLine.slice(idx + 1).trim() : '';
+        if (!t) continue;
+
+        let m = t.match(nodeRe);
+        if (m) {
+          const level = m[1], id = m[2], name = m[3].trim();
+          if (!name) throw new Error('第 ' + ln + ' 行错误：节点名称不能为空');
+          s.nodes[level][id] = name;
+          if (inlineComment) s.comments[level][id] = inlineComment;
+          continue;
+        }
+        m = t.match(hRe);
+        if (m) {
+          s.hierarchy.push({ l1: m[1], l2: m[2], l3: m[3] });
+          continue;
+        }
+        m = t.match(gRe);
+        if (m) {
+          s.edges.push({ l3: m[1], l4: m[2] });
+          continue;
+        }
+        throw new Error('第 ' + ln + ' 行无法识别，请检查格式');
+      }
+
+      const checkNode = (level, id, relType) => {
+        if (!s.nodes[level][id]) throw new Error(relType + ' 中引用了未定义节点：' + id + '（需先定义 ' + level + ' 节点）');
+      };
+      s.hierarchy.forEach(h => {
+        checkNode('L1', h.l1, '树关系');
+        checkNode('L2', h.l2, '树关系');
+        checkNode('L3', h.l3, '树关系');
+      });
+      s.edges.forEach(e => {
+        checkNode('L3', e.l3, 'L3-L4关系');
+        checkNode('L4', e.l4, 'L3-L4关系');
+      });
+
+      s.hierarchy = uniqBy(s.hierarchy, h => [h.l1, h.l2, h.l3].join('|'));
+      s.edges = uniqBy(s.edges, e => [e.l3, e.l4].join('|'));
+      return s;
+    }
+
+    function renderTree(s) {
+      const grouped = {};
+      s.hierarchy.forEach(h => {
+        grouped[h.l1] = grouped[h.l1] || {};
+        grouped[h.l1][h.l2] = grouped[h.l1][h.l2] || [];
+        if (!grouped[h.l1][h.l2].includes(h.l3)) grouped[h.l1][h.l2].push(h.l3);
+      });
+      const edgesByL3 = {};
+      s.edges.forEach(e => {
+        edgesByL3[e.l3] = edgesByL3[e.l3] || [];
+        edgesByL3[e.l3].push(e.l4);
+      });
+      Object.keys(edgesByL3).forEach(l3 => { edgesByL3[l3] = Array.from(new Set(edgesByL3[l3])).sort(); });
+
+      const l1List = Object.keys(grouped).sort();
+      if (!l1List.length) return '<p>暂无树关系。</p>';
+
+      let html = "<ul class='tree'>";
+      l1List.forEach(l1 => {
+        html += "<li><details open><summary><span class='tag l1'>" + esc(l1) + " " + esc(s.nodes.L1[l1] || '(未命名)') + "</span></summary><ul>";
+        Object.keys(grouped[l1]).sort().forEach(l2 => {
+          html += "<li><details open><summary><span class='tag'>" + esc(l2) + " " + esc(s.nodes.L2[l2] || '(未命名)') + "</span></summary><ul>";
+          grouped[l1][l2].sort().forEach(l3 => {
+            const l4ids = edgesByL3[l3] || [];
+            html += "<li><details><summary><span class='tag'>" + esc(l3) + " " + esc(s.nodes.L3[l3] || '(未命名)') + "</span><span class='meta'>关联 " + l4ids.length + " 个L4</span></summary><ul>";
+            if (!l4ids.length) {
+              html += "<li><span class='tag'>L4（未定义）</span></li>";
+            } else {
+              l4ids.forEach(l4 => {
+                html += "<li><span class='tag'>" + esc(l4) + " " + esc(s.nodes.L4[l4] || '(未命名)') + "</span></li>";
+              });
+            }
+            html += "</ul></details></li>";
+          });
+          html += "</ul></details></li>";
+        });
+        html += "</ul></details></li>";
+      });
+      html += "</ul>";
+      return html;
+    }
+
+    function rerender(msg) {
+      errorBox.style.display = 'none';
+      treeView.innerHTML = renderTree(state);
+      textEditor.value = serializeText(state);
+      statusEl.textContent = '更新成功：' + new Date().toLocaleTimeString() + (msg ? ' | ' + msg : '');
+      statusEl.className = 'status ok';
+    }
+
+    function showError(msg) {
+      errorBox.style.display = 'block';
+      errorBox.textContent = msg;
+      statusEl.textContent = '失败';
+      statusEl.className = 'status';
+    }
+
+    document.getElementById('parseBtn').addEventListener('click', () => {
+      try {
+        state = parseText(textEditor.value);
+        rerender('文本已解析');
+      } catch (e) { showError(e.message); }
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      state = toState(defaultSeed);
+      rerender('已恢复默认');
+    });
+
+    document.getElementById('copyTextBtn').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(textEditor.value); statusEl.textContent = '已复制文本'; }
+      catch (_) { statusEl.textContent = '复制失败'; }
+    });
+
+    document.getElementById('copyJsonBtn').addEventListener('click', async () => {
+      try {
+        const text = JSON.stringify(state, null, 2);
+        await navigator.clipboard.writeText(text);
+        statusEl.textContent = 'JSON 已复制';
+      } catch (_) { statusEl.textContent = '复制失败'; }
+    });
+
+    let inputTimer = null;
+    textEditor.addEventListener('input', () => {
+      clearTimeout(inputTimer);
+      inputTimer = setTimeout(() => {
+        try {
+          state = parseText(textEditor.value);
+          errorBox.style.display = 'none';
+          treeView.innerHTML = renderTree(state);
+          statusEl.textContent = '自动解析成功：' + new Date().toLocaleTimeString();
+          statusEl.className = 'status ok';
+        } catch (e) {
+          showError(e.message);
+        }
+      }, 260);
+    });
+
+    rerender('初始化完成');
+  </script>
+</body>
+</html>
