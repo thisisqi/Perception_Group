@@ -1,0 +1,531 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>L1-L5 行为谱系网络关系图</title>
+  <style>
+    :root {
+      --bg: #f3f7fd;
+      --panel: #ffffff;
+      --line: #cfdced;
+      --ink: #14243b;
+      --muted: #536a86;
+      --edge: #86a4ca;
+      --active: #164a91;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+      color: var(--ink);
+      background: linear-gradient(135deg, #ffffff 0%, var(--bg) 48%, #e8f1fb 100%);
+    }
+    .wrap { min-height: 100vh; padding: 14px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(23, 32, 51, 0.08);
+      overflow: hidden;
+    }
+    .hd {
+      margin: 0;
+      padding: 12px 14px;
+      font-size: 18px;
+      line-height: 1.35;
+      border-bottom: 1px solid var(--line);
+      background: #f9fbff;
+    }
+    .tip {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      background: #fcfdff;
+    }
+    .body-grid {
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) 8px minmax(260px, 420px);
+      gap: 8px;
+      padding: 10px 12px 14px;
+    }
+    .splitter {
+      width: 8px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #dbe8f7, #a9c4e2, #dbe8f7);
+      cursor: col-resize;
+      position: relative;
+    }
+    .splitter::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 2px;
+      height: 46px;
+      border-left: 1px solid rgba(47, 93, 145, .55);
+      border-right: 1px solid rgba(47, 93, 145, .55);
+      transform: translate(-50%, -50%);
+    }
+    .body-grid.resizing,
+    .body-grid.resizing * {
+      cursor: col-resize !important;
+      user-select: none;
+    }
+    .view {
+      padding: 0;
+      overflow: auto;
+      max-height: calc(100vh - 112px);
+    }
+    .detail {
+      border: 1px solid #d8e4f2;
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 12px;
+      max-height: calc(100vh - 112px);
+      overflow: auto;
+    }
+    .detail h2 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      color: #1d3f6e;
+    }
+    .detail p {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .detail ol {
+      margin: 0;
+      padding-left: 20px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #193858;
+    }
+    .detail li { margin: 3px 0; }
+    .svg {
+      display: block;
+      width: max-content;
+      min-width: 100%;
+      height: auto;
+      background: #ffffff;
+      border: 1px solid #dbe6f3;
+      border-radius: 10px;
+    }
+    .col-title {
+      font-size: 13px;
+      fill: #244565;
+      font-weight: 800;
+    }
+    .node {
+      fill: #f8fbff;
+      stroke: #a9bdd8;
+      stroke-width: 1;
+      rx: 6;
+      ry: 6;
+      cursor: pointer;
+      transition: opacity .15s ease, fill .15s ease, stroke .15s ease, stroke-width .15s ease;
+    }
+    .node-text {
+      font-size: 10.5px;
+      fill: #172d4a;
+      dominant-baseline: middle;
+      pointer-events: none;
+    }
+    .edge {
+      stroke: var(--edge);
+      stroke-width: .35;
+      fill: none;
+      opacity: .42;
+      cursor: pointer;
+      transition: opacity .15s ease, stroke .15s ease, stroke-width .15s ease;
+    }
+    .dim { opacity: .08 !important; }
+    .active-node { stroke: var(--active); stroke-width: 2; opacity: 1 !important; }
+    .active-edge { stroke: var(--active); stroke-width: .9; opacity: .9 !important; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <h1 class="hd">L1-L5 行为谱系网络关系图 / Behavior Framework Network</h1>
+      <div class="tip">点击节点或连线可聚焦相关关系，点击空白恢复全量显示。网络显示 L1 Landuse → L2 Activities → L3 Project → L4 Behaviors；点击 L4 节点可在右侧查看对应 L5 Actions。</div>
+      <div class="body-grid">
+        <div id="graphView" class="view"></div>
+        <div id="splitter" class="splitter" title="拖动调整左右面板宽度"></div>
+        <aside id="detailPanel" class="detail"></aside>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const levels = ["L1", "L2", "L3", "L4"];
+
+    const data = {
+      nodes: {
+        L1: [
+          ["L1_01", "公园绿地（Park Green Space）"],
+          ["L1_02", "商业服务（Commercial Service）"],
+          ["L1_03", "交通用地（Transportation Land）"],
+          ["L1_04", "公共服务空间（Public Service Space）"]
+        ],
+        L2: [
+          ["L2_01", "生活（Living）"],
+          ["L2_02", "工作（Working）"],
+          ["L2_03", "购物（Commerce）"],
+          ["L2_04", "健康照护（Healthcare）"],
+          ["L2_05", "教育（Education）"],
+          ["L2_06", "娱乐（Entertainment）"]
+        ],
+        L3: [
+          ["L3_01", "进食（Eat / Meal）"],
+          ["L3_02", "点餐（Order food for take away）"],
+          ["L3_03", "挑选商品（Choosing / looking at）"],
+          ["L3_04", "购买（Buying）"],
+          ["L3_05", "支付（Payment / Transaction）"],
+          ["L3_06", "取物（Fetching / Take out and store）"],
+          ["L3_07", "等待服务（Waiting for service）"],
+          ["L3_08", "接受服务（Service / Treatment）"],
+          ["L3_09", "排队（Queueing / Waiting）"],
+          ["L3_10", "健身（Physical exercise）"],
+          ["L3_11", "步行（Walking / Strolling）"],
+          ["L3_12", "驾车（Drive）"],
+          ["L3_13", "停车（Parking）"],
+          ["L3_14", "骑行（Cycling / Bicycling）"],
+          ["L3_15", "乘坐公共交通（Ride by public transport）"],
+          ["L3_16", "候车（Wait for transport）"],
+          ["L3_17", "收拾东西（Packing / Pack up）"],
+          ["L3_18", "儿童外出照料（Take baby / children out）"],
+          ["L3_19", "打电话（Telephoning / Calling）"],
+          ["L3_20", "交谈（Talking / Chatting）"],
+          ["L3_21", "问询（Inquiry / Asking）"],
+          ["L3_22", "社交（Socializing）"],
+          ["L3_23", "聚会（Party / Social gathering）"],
+          ["L3_24", "告别（Saying farewell）"],
+          ["L3_25", "参与游戏（Take part in games）"],
+          ["L3_26", "等人（Wait for somebody）"],
+          ["L3_27", "阅读（Reading）"],
+          ["L3_28", "观察（Looking / Watching）"],
+          ["L3_29", "观看表演/演奏（Theater / Live music）"],
+          ["L3_30", "创作（Drawing / Painting / Creating）"],
+          ["L3_31", "拍照记录（Photographing / Recording）"],
+          ["L3_32", "学习（Studying / Evening school）"],
+          ["L3_33", "玩手机（Electronic communication / Surf）"],
+          ["L3_34", "遛狗（Taking the dog out）"],
+          ["L3_35", "照料动物（Treating / helping animals）"],
+          ["L3_36", "照料植物（Taking care of plants）"],
+          ["L3_37", "户外维护（Maintenance outdoors）"],
+          ["L3_38", "采摘（Harvest / Pick）"],
+          ["L3_39", "垃圾处理与回收（Waste handling / Recycling）"]
+        ],
+        L4: [
+          ["L4_01", "移动行为（Locomotion）"],
+          ["L4_02", "停留行为（Stationary）"],
+          ["L4_03", "速度调节（Speed Regulation）"],
+          ["L4_04", "姿态调节（Postural Adjustment）"],
+          ["L4_05", "空间转换（Spatial Transition）"],
+          ["L4_06", "健身运动（Physical Exertion）"],
+          ["L4_07", "执行任务（Task Execution）"],
+          ["L4_08", "物体操作（Object Manipulation）"],
+          ["L4_09", "环境互动（Environmental Engagement）"],
+          ["L4_10", "设备使用（Device-mediated Interaction）"],
+          ["L4_11", "人际协作（Interpersonal Interaction）"],
+          ["L4_12", "群体互动（Group Dynamics）"]
+        ],
+        L5: [
+          ["L5_001", "步行（Walking）"], ["L5_002", "跑步（Running / Jogging）"], ["L5_003", "爬行（Crawling）"], ["L5_004", "跳跃（Jumping / Leaping）"],
+          ["L5_005", "游泳（Swimming）"], ["L5_006", "攀爬（Climbing）"], ["L5_007", "骑自行车（Cycling / Biking）"], ["L5_008", "滑滑板车（Scootering）"],
+          ["L5_009", "滑滑板（Skating）"], ["L5_010", "骑车（Riding）"], ["L5_011", "驾驶汽车（Driving a car）"], ["L5_012", "划船（Rowing）"],
+          ["L5_013", "驾驶帆船（Sailing）"], ["L5_014", "上楼梯（Going upstairs）"], ["L5_015", "下楼梯（Going downstairs）"], ["L5_016", "穿行（Passing through）"],
+          ["L5_017", "车辆行驶（Vehicle moving）"], ["L5_018", "车辆启动（Vehicle starting）"], ["L5_019", "车辆停止（Vehicle stopping）"], ["L5_020", "车辆左转（Vehicle turning left）"],
+          ["L5_021", "车辆右转（Vehicle turning right）"], ["L5_022", "车辆掉头（Vehicle U-turn）"],
+          ["L5_023", "站立（Standing）"], ["L5_024", "坐（Sitting）"], ["L5_025", "躺（Lying）"], ["L5_026", "等待（Waiting）"], ["L5_027", "排队（Queueing）"],
+          ["L5_028", "让出路径反应（Yielding path reaction）"], ["L5_029", "加速反应（Speeding up reaction）"], ["L5_030", "减速反应（Slowing down reaction）"],
+          ["L5_031", "跌倒（Falling down）"], ["L5_032", "起身（Getting up）"], ["L5_033", "蹲/跪（Squatting / Kneeling）"], ["L5_034", "弯腰（Bending over）"], ["L5_035", "穿衣（Dressing）"],
+          ["L5_036", "进入（Entering）"], ["L5_037", "离开（Leaving）"], ["L5_038", "车辆接人（Vehicle pickup）"], ["L5_039", "车辆送人下车（Vehicle drop-off）"],
+          ["L5_040", "练习武术（Practicing martial arts）"], ["L5_041", "跳舞（Dancing）"], ["L5_042", "演奏乐器（Playing musical instrument）"],
+          ["L5_043", "使用工具（Using tool）"], ["L5_044", "旋转工具（Rotating tool）"], ["L5_045", "按压（Pressing）"], ["L5_046", "砍/劈（Chopping）"], ["L5_047", "切割（Cutting）"],
+          ["L5_048", "挖掘（Digging）"], ["L5_049", "铲运（Shoveling）"], ["L5_050", "搅拌（Stirring）"], ["L5_051", "取出物品（Taking out object）"], ["L5_052", "粉刷（Painting）"],
+          ["L5_053", "烹饪（Cooking）"], ["L5_054", "进食（Eating）"], ["L5_055", "饮水（Drinking）"], ["L5_056", "阅读（Reading）"], ["L5_057", "书写/打字（Writing / Typing）"],
+          ["L5_058", "装载货物（Loading goods）"], ["L5_059", "卸载货物（Unloading goods）"], ["L5_060", "钓鱼（Fishing）"],
+          ["L5_061", "手持物体（Holding object）"], ["L5_062", "接住物体（Catching object）"], ["L5_063", "拿起/举起物体（Picking up / Lifting object）"], ["L5_064", "放下物体（Putting down object）"],
+          ["L5_065", "打开（Opening）"], ["L5_066", "关闭（Closing）"], ["L5_067", "拉动物体（Pulling object）"], ["L5_068", "推动物体（Pushing object）"], ["L5_069", "触摸/操作物体（Touching / Operating object）"],
+          ["L5_070", "指向物体（Pointing at object）"], ["L5_071", "投掷（Throwing）"], ["L5_072", "击打物体（Hitting object）"], ["L5_073", "踢物体（Kicking object）"], ["L5_074", "开关门（Opening / Closing door）"],
+          ["L5_075", "把物品递给他人（Handing object to others）"], ["L5_076", "从他人处接过物品（Receiving object from others）"],
+          ["L5_077", "与宠物玩耍（Playing with pet）"], ["L5_078", "拍照（Taking photos）"], ["L5_079", "吸烟（Smoking）"], ["L5_080", "道路事故（Road accident）"],
+          ["L5_081", "偏离步道步行异常（Off-path walking anomaly）"], ["L5_082", "滑板者异常（Skateboarder anomaly）"], ["L5_083", "小推车异常（Cart anomaly）"], ["L5_084", "轮椅异常（Wheelchair anomaly）"],
+          ["L5_085", "接电话（Answering phone）"], ["L5_086", "打电话（Making phone call）"], ["L5_087", "发短信/看手机（Texting / Looking at phone）"], ["L5_088", "使用电脑（Using computer）"], ["L5_089", "看屏幕（Looking at screen）"], ["L5_090", "听音频（Listening to audio）"],
+          ["L5_091", "与人交谈（Talking with people）"], ["L5_092", "听他人说话（Listening to others）"], ["L5_093", "看向他人/目标（Looking at person / target）"], ["L5_094", "对个人或群体唱歌（Singing to person or group）"],
+          ["L5_095", "点头（Nodding）"], ["L5_096", "致意手势（Greeting gesture）"], ["L5_097", "让行手势（Yielding gesture）"], ["L5_098", "优先通行手势（Right-of-way gesture）"],
+          ["L5_099", "握手（Shaking hands）"], ["L5_100", "拥抱（Hugging）"], ["L5_101", "拍手（Clapping）"], ["L5_102", "挥手/打招呼（Waving / Greeting）"], ["L5_103", "亲吻（Kissing）"], ["L5_104", "抱起他人（Lifting / Holding another person）"], ["L5_105", "与儿童玩耍（Playing with children）"],
+          ["L5_106", "抓住他人（Grabbing others）"], ["L5_107", "推他人（Pushing others）"], ["L5_108", "踢他人（Kicking others）"], ["L5_109", "击打/打斗他人（Hitting / Fighting others）"], ["L5_110", "虐待（Abuse）"], ["L5_111", "逮捕（Arrest）"],
+          ["L5_112", "纵火（Arson）"], ["L5_113", "袭击（Assault）"], ["L5_114", "入室盗窃（Burglary）"], ["L5_115", "爆炸（Explosion）"], ["L5_116", "抢劫（Robbery）"], ["L5_117", "枪击（Shooting）"], ["L5_118", "店内盗窃（Shoplifting）"], ["L5_119", "偷窃（Stealing）"], ["L5_120", "破坏公物（Vandalism）"], ["L5_121", "骚乱（Riot）"], ["L5_122", "玩棋盘游戏/打麻将（Board games / Mahjong）"]
+        ]
+      },
+      edges: []
+    };
+
+    const add = (from, to) => data.edges.push([from, to]);
+    const addMany = (from, tos) => tos.forEach(to => add(from, to));
+
+    addMany("L1_01", ["L2_01", "L2_04", "L2_05", "L2_06"]);
+    addMany("L1_02", ["L2_01", "L2_02", "L2_03", "L2_04", "L2_06"]);
+    addMany("L1_03", ["L2_01", "L2_02", "L2_03", "L2_04", "L2_05", "L2_06"]);
+    addMany("L1_04", ["L2_01", "L2_02", "L2_04", "L2_05", "L2_06"]);
+
+    addMany("L2_01", ["L3_01", "L3_06", "L3_07", "L3_08", "L3_11", "L3_12", "L3_13", "L3_14", "L3_15", "L3_16", "L3_17", "L3_18", "L3_19", "L3_20", "L3_22", "L3_24", "L3_26", "L3_27", "L3_28", "L3_33", "L3_34", "L3_35", "L3_36", "L3_37", "L3_39"]);
+    addMany("L2_02", ["L3_07", "L3_08", "L3_09", "L3_11", "L3_12", "L3_13", "L3_14", "L3_15", "L3_16", "L3_17", "L3_19", "L3_20", "L3_21", "L3_26", "L3_27", "L3_28", "L3_32", "L3_33"]);
+    addMany("L2_03", ["L3_01", "L3_02", "L3_03", "L3_04", "L3_05", "L3_06", "L3_07", "L3_08", "L3_09", "L3_11", "L3_12", "L3_13", "L3_14", "L3_15", "L3_16", "L3_17", "L3_19", "L3_20", "L3_21", "L3_26", "L3_28", "L3_31", "L3_33"]);
+    addMany("L2_04", ["L3_07", "L3_08", "L3_09", "L3_10", "L3_11", "L3_12", "L3_13", "L3_14", "L3_15", "L3_16", "L3_18", "L3_19", "L3_20", "L3_21", "L3_26", "L3_28", "L3_33"]);
+    addMany("L2_05", ["L3_07", "L3_08", "L3_09", "L3_11", "L3_12", "L3_13", "L3_14", "L3_15", "L3_16", "L3_17", "L3_18", "L3_19", "L3_20", "L3_21", "L3_22", "L3_26", "L3_27", "L3_28", "L3_32", "L3_33"]);
+    addMany("L2_06", ["L3_01", "L3_02", "L3_05", "L3_07", "L3_08", "L3_09", "L3_10", "L3_11", "L3_12", "L3_13", "L3_14", "L3_15", "L3_16", "L3_18", "L3_19", "L3_20", "L3_22", "L3_23", "L3_24", "L3_25", "L3_26", "L3_27", "L3_28", "L3_29", "L3_30", "L3_31", "L3_33", "L3_34", "L3_35", "L3_36", "L3_37", "L3_38", "L3_39"]);
+
+    const projectToBehaviors = {
+      L3_01: ["L4_02", "L4_07", "L4_08", "L4_11"],
+      L3_02: ["L4_02", "L4_07", "L4_10", "L4_11"],
+      L3_03: ["L4_02", "L4_07", "L4_08", "L4_10"],
+      L3_04: ["L4_02", "L4_07", "L4_08", "L4_10", "L4_11"],
+      L3_05: ["L4_07", "L4_08", "L4_10", "L4_11"],
+      L3_06: ["L4_01", "L4_05", "L4_07", "L4_08"],
+      L3_07: ["L4_02", "L4_04", "L4_10", "L4_11"],
+      L3_08: ["L4_02", "L4_07", "L4_08", "L4_10", "L4_11"],
+      L3_09: ["L4_02", "L4_04", "L4_11", "L4_12"],
+      L3_10: ["L4_01", "L4_03", "L4_04", "L4_06", "L4_09"],
+      L3_11: ["L4_01", "L4_03", "L4_04", "L4_05", "L4_09"],
+      L3_12: ["L4_01", "L4_03", "L4_05", "L4_08"],
+      L3_13: ["L4_02", "L4_05", "L4_07", "L4_08"],
+      L3_14: ["L4_01", "L4_03", "L4_04", "L4_05", "L4_08"],
+      L3_15: ["L4_01", "L4_02", "L4_05", "L4_08", "L4_11"],
+      L3_16: ["L4_02", "L4_04", "L4_10", "L4_11"],
+      L3_17: ["L4_07", "L4_08", "L4_04"],
+      L3_18: ["L4_01", "L4_05", "L4_08", "L4_11"],
+      L3_19: ["L4_02", "L4_10", "L4_11"],
+      L3_20: ["L4_02", "L4_10", "L4_11", "L4_12"],
+      L3_21: ["L4_02", "L4_10", "L4_11"],
+      L3_22: ["L4_02", "L4_10", "L4_11", "L4_12"],
+      L3_23: ["L4_02", "L4_07", "L4_11", "L4_12"],
+      L3_24: ["L4_05", "L4_11"],
+      L3_25: ["L4_02", "L4_07", "L4_08", "L4_11", "L4_12"],
+      L3_26: ["L4_02", "L4_04", "L4_10", "L4_11"],
+      L3_27: ["L4_02", "L4_07", "L4_10"],
+      L3_28: ["L4_02", "L4_07", "L4_09", "L4_10"],
+      L3_29: ["L4_02", "L4_07", "L4_11", "L4_12"],
+      L3_30: ["L4_02", "L4_07", "L4_08", "L4_09"],
+      L3_31: ["L4_02", "L4_08", "L4_09", "L4_10"],
+      L3_32: ["L4_02", "L4_07", "L4_10", "L4_11"],
+      L3_33: ["L4_02", "L4_10", "L4_11"],
+      L3_34: ["L4_01", "L4_03", "L4_08", "L4_09"],
+      L3_35: ["L4_02", "L4_07", "L4_08", "L4_09"],
+      L3_36: ["L4_02", "L4_07", "L4_08", "L4_09"],
+      L3_37: ["L4_01", "L4_04", "L4_07", "L4_08", "L4_09"],
+      L3_38: ["L4_01", "L4_07", "L4_08", "L4_09"],
+      L3_39: ["L4_01", "L4_05", "L4_07", "L4_08", "L4_09"]
+    };
+    Object.entries(projectToBehaviors).forEach(([p, bs]) => addMany(p, bs));
+
+    const behaviorToActions = {
+      L4_01: ["L5_001", "L5_002", "L5_003", "L5_004", "L5_005", "L5_006", "L5_007", "L5_008", "L5_009", "L5_010", "L5_011", "L5_012", "L5_013", "L5_014", "L5_015", "L5_016", "L5_017", "L5_018", "L5_019", "L5_020", "L5_021", "L5_022"],
+      L4_02: ["L5_023", "L5_024", "L5_025", "L5_026", "L5_027"],
+      L4_03: ["L5_028", "L5_029", "L5_030"],
+      L4_04: ["L5_031", "L5_032", "L5_033", "L5_034", "L5_035"],
+      L4_05: ["L5_036", "L5_037", "L5_038", "L5_039"],
+      L4_06: ["L5_040", "L5_041", "L5_042"],
+      L4_07: ["L5_043", "L5_044", "L5_045", "L5_046", "L5_047", "L5_048", "L5_049", "L5_050", "L5_051", "L5_052", "L5_053", "L5_054", "L5_055", "L5_056", "L5_057", "L5_058", "L5_059", "L5_060"],
+      L4_08: ["L5_061", "L5_062", "L5_063", "L5_064", "L5_065", "L5_066", "L5_067", "L5_068", "L5_069", "L5_070", "L5_071", "L5_072", "L5_073", "L5_074", "L5_075", "L5_076"],
+      L4_09: ["L5_077", "L5_078", "L5_079", "L5_080", "L5_081", "L5_082", "L5_083", "L5_084"],
+      L4_10: ["L5_085", "L5_086", "L5_087", "L5_088", "L5_089", "L5_090"],
+      L4_11: ["L5_091", "L5_092", "L5_093", "L5_094", "L5_095", "L5_096", "L5_097", "L5_098", "L5_099", "L5_100", "L5_101", "L5_102", "L5_103", "L5_104", "L5_105"],
+      L4_12: ["L5_106", "L5_107", "L5_108", "L5_109", "L5_110", "L5_111", "L5_112", "L5_113", "L5_114", "L5_115", "L5_116", "L5_117", "L5_118", "L5_119", "L5_120", "L5_121", "L5_122"]
+    };
+    const nodeMap = {};
+    [...levels, "L5"].forEach(l => {
+      nodeMap[l] = {};
+      data.nodes[l].forEach(([id, name]) => nodeMap[l][id] = name);
+    });
+
+    const levelOf = (id) => id.split("_")[0];
+    const colors = {
+      L1: { fill: "#edf5ff", stroke: "#7ea4d8", line: "#7ea4d8" },
+      L2: { fill: "#e8f2ff", stroke: "#3f7fc7", line: "#3f7fc7" },
+      L3: { fill: "#f4f8ff", stroke: "#8aaed9", line: "#8aaed9" },
+      L4: { fill: "#eaf3ff", stroke: "#5b8fc8", line: "#5b8fc8" }
+    };
+    const l2Colors = {
+      L2_01: { fill: "#dcecff", stroke: "#4f86c6", line: "#4f86c6" },
+      L2_02: { fill: "#dff7f5", stroke: "#4aa7a0", line: "#4aa7a0" },
+      L2_03: { fill: "#fff0d8", stroke: "#d3933d", line: "#d3933d" },
+      L2_04: { fill: "#e8e5ff", stroke: "#7f73c9", line: "#7f73c9" },
+      L2_05: { fill: "#e4f5df", stroke: "#6aa85c", line: "#6aa85c" },
+      L2_06: { fill: "#ffe4eb", stroke: "#c86f8a", line: "#c86f8a" }
+    };
+
+    function esc(x) {
+      return String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    function uniqEdges(edges) {
+      const seen = new Set();
+      return edges.filter(([a, b]) => {
+        const k = `${a}|${b}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    }
+
+    let focus = null;
+
+    function render() {
+      const view = document.getElementById("graphView");
+      const ids = {};
+      levels.forEach(l => ids[l] = data.nodes[l].map(([id]) => id));
+      const edges = uniqEdges(data.edges);
+      const nodeW = 238;
+      const nodeH = 22;
+      const gapY = 7;
+      const topPad = 40;
+      const sidePad = 16;
+      const colGap = 56;
+      const maxCount = Math.max(...levels.map(l => ids[l].length));
+      const svgH = topPad + maxCount * (nodeH + gapY) + 22;
+      const x = {};
+      levels.forEach((l, i) => x[l] = sidePad + i * (nodeW + colGap));
+      const svgW = x.L4 + nodeW + sidePad;
+      const pos = {};
+      levels.forEach(l => {
+        pos[l] = {};
+        ids[l].forEach((id, i) => pos[l][id] = { x: x[l], y: topPad + i * (nodeH + gapY) });
+      });
+
+      const key = id => `${levelOf(id)}:${id}`;
+      const neighbors = {};
+      edges.forEach(([a, b]) => {
+        const ka = key(a), kb = key(b);
+        neighbors[ka] = neighbors[ka] || new Set();
+        neighbors[kb] = neighbors[kb] || new Set();
+        neighbors[ka].add(kb);
+        neighbors[kb].add(ka);
+      });
+
+      const isActiveNode = id => {
+        if (!focus) return true;
+        if (focus.type === "node") {
+          const k = key(id);
+          const fk = key(focus.id);
+          return k === fk || neighbors[fk]?.has(k);
+        }
+        if (focus.type === "edge") return id === focus.from || id === focus.to;
+        return true;
+      };
+
+      const isActiveEdge = ([a, b]) => {
+        if (!focus) return true;
+        if (focus.type === "node") return a === focus.id || b === focus.id;
+        if (focus.type === "edge") return a === focus.from && b === focus.to;
+        return true;
+      };
+
+      const titles = [
+        ["L1", "L1 Landuse / 用地"],
+        ["L2", "L2 Activities / 活动"],
+        ["L3", "L3 Project / 企划"],
+        ["L4", "L4 Behaviors / 行为"]
+      ].map(([l, t]) => `<text class="col-title" x="${x[l]}" y="24">${esc(t)}</text>`).join("");
+
+      const edgeSvg = edges.map(([from, to]) => {
+        const lf = levelOf(from), lt = levelOf(to);
+        const p1 = pos[lf][from], p2 = pos[lt][to];
+        if (!p1 || !p2) return "";
+        const x1 = p1.x + nodeW, y1 = p1.y + nodeH / 2;
+        const x2 = p2.x, y2 = p2.y + nodeH / 2;
+        const on = isActiveEdge([from, to]);
+        const cls = `edge${focus ? (on ? " active-edge" : " dim") : ""}`;
+        const stroke = lf === "L2" ? (l2Colors[from]?.line || colors.L2.line) : (colors[lf]?.line || "#86a4ca");
+        return `<path class="${cls}" style="stroke:${stroke}" data-kind="edge" data-from="${from}" data-to="${to}" d="M ${x1} ${y1} C ${x1 + 24} ${y1}, ${x2 - 24} ${y2}, ${x2} ${y2}" />`;
+      }).join("");
+
+      const nodeSvg = levels.map(l => ids[l].map(id => {
+        const p = pos[l][id];
+        const on = isActiveNode(id);
+        const cls = `node${focus ? (on ? " active-node" : " dim") : ""}`;
+        const c = l === "L2" ? (l2Colors[id] || colors.L2) : colors[l];
+        const label = `${id} ${nodeMap[l][id]}`;
+        return `<g>
+          <rect class="${cls}" style="fill:${c.fill};stroke:${c.stroke}" data-kind="node" data-id="${id}" x="${p.x}" y="${p.y}" width="${nodeW}" height="${nodeH}"></rect>
+          <text class="node-text" x="${p.x + 7}" y="${p.y + nodeH / 2}">${esc(label)}</text>
+        </g>`;
+      }).join("")).join("");
+
+      view.innerHTML = `<svg class="svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="L1-L4 behavior framework network">${titles}${edgeSvg}${nodeSvg}</svg>`;
+      renderDetail();
+    }
+
+    function renderDetail() {
+      const panel = document.getElementById("detailPanel");
+      const selected = focus?.type === "node" && levelOf(focus.id) === "L4" ? focus.id : null;
+      if (!selected) {
+        panel.innerHTML = `<h2>L5 Actions / 动作明细</h2><p>点击左侧 L4 Behaviors 节点，查看对应的 L5 具体动作。</p>`;
+        return;
+      }
+      const actionIds = behaviorToActions[selected] || [];
+      const items = actionIds.map(id => `<li>${esc(id)} ${esc(nodeMap.L5[id] || "(未命名)")}</li>`).join("");
+      panel.innerHTML = `<h2>${esc(selected)} ${esc(nodeMap.L4[selected])}</h2><p>对应 L5 Actions / 动作明细（${actionIds.length}）</p><ol>${items}</ol>`;
+    }
+
+    document.getElementById("graphView").addEventListener("click", (ev) => {
+      const t = ev.target;
+      const kind = t?.dataset?.kind;
+      if (!kind) {
+        focus = null;
+        render();
+        return;
+      }
+      if (kind === "node") {
+        const id = t.dataset.id;
+        focus = focus && focus.type === "node" && focus.id === id ? null : { type: "node", id };
+      }
+      if (kind === "edge") {
+        const from = t.dataset.from;
+        const to = t.dataset.to;
+        focus = focus && focus.type === "edge" && focus.from === from && focus.to === to ? null : { type: "edge", from, to };
+      }
+      render();
+    });
+
+    const grid = document.querySelector(".body-grid");
+    const splitter = document.getElementById("splitter");
+    const setColumns = (leftPx) => {
+      const rect = grid.getBoundingClientRect();
+      const splitterW = splitter.offsetWidth || 8;
+      const gapTotal = 16;
+      const minLeft = 520;
+      const minRight = 260;
+      const maxLeft = Math.max(minLeft, rect.width - splitterW - gapTotal - minRight);
+      const left = Math.min(Math.max(leftPx, minLeft), maxLeft);
+      const right = Math.max(minRight, rect.width - splitterW - gapTotal - left);
+      grid.style.gridTemplateColumns = `${left}px ${splitterW}px ${right}px`;
+    };
+    splitter.addEventListener("pointerdown", (ev) => {
+      ev.preventDefault();
+      splitter.setPointerCapture(ev.pointerId);
+      grid.classList.add("resizing");
+    });
+    splitter.addEventListener("pointermove", (ev) => {
+      if (!grid.classList.contains("resizing")) return;
+      const rect = grid.getBoundingClientRect();
+      setColumns(ev.clientX - rect.left);
+    });
+    const stopResize = (ev) => {
+      if (splitter.hasPointerCapture?.(ev.pointerId)) splitter.releasePointerCapture(ev.pointerId);
+      grid.classList.remove("resizing");
+    };
+    splitter.addEventListener("pointerup", stopResize);
+    splitter.addEventListener("pointercancel", stopResize);
+
+    render();
+  </script>
+</body>
+</html>
